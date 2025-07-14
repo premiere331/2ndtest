@@ -2,17 +2,17 @@ import os
 import json
 import pandas as pd
 from azure.cosmos import CosmosClient
+from azure.storage.blob import BlobServiceClient
 
 # --- 1. Azure 리소스 연결 정보 설정 ---
-# (이 부분은 기존과 동일하게 올바른 값으로 유지)
-COSMOS_ENDPOINT = "https://seoul-data-db.documents.azure.com:443"  # 예: "https://your-account.documents.azure.com:443/"
-COSMOS_KEY = "gdgCLQrX8omjZKrDkLRCyo41URDljVi7K8rdHzTUcUpRLg2k1BR8th6CmyKtUG3XS0wLB2hwe49oACDbxniaXQ=="
+COSMOS_ENDPOINT = "YOUR_COSMOS_DB_ENDPOINT"
+COSMOS_KEY = "YOUR_COSMOS_DB_PRIMARY_KEY"
 DATABASE_NAME = "seoul-data-db"
 CONTAINER_NAME = "seoul-data-container"
 
-BLOB_CONNECTION_STRING = "DefaultEndpointsProtocol=https;AccountName=cosmo2csv;AccountKey=jkUvA9iMfrJ8JHNSuuOs21uFYfM7g2Gu7D/CubSAEE6bknEtqp7x8woG3XGZSqviuth3t14oPvpk+AStKqz1qg==;EndpointSuffix=core.windows.net"
-BLOB_CONTAINER_NAME = "parkingcsv" # 데이터를 저장할 Blob 컨테이너 이름
-OUTPUT_FILENAME = "parking_data_from_vm.csv" # 저장될 CSV 파일 이름
+BLOB_CONNECTION_STRING = "YOUR_BLOB_STORAGE_CONNECTION_STRING"
+BLOB_CONTAINER_NAME = "parkingcsv"
+OUTPUT_FILENAME = "parking_data_from_vm.csv"
 
 def main():
     print("스크립트 실행 시작...")
@@ -23,37 +23,26 @@ def main():
     database = client.get_database_client(DATABASE_NAME)
     container = database.get_container_client(CONTAINER_NAME)
 
-    # =================================================================
-    # === 로직 수정: 쿼리를 최적화하고, 결과를 스트리밍 방식으로 처리 ===
-    # =================================================================
     print("데이터 쿼리 실행 (최근 1000개 문서만 가져오도록 제한)...")
-    # 쿼리: 모든 문서 대신, 시스템 타임스탬프(_ts) 기준으로 내림차순 정렬 후 상위 1000개만 선택
     query = "SELECT * FROM c ORDER BY c._ts DESC OFFSET 0 LIMIT 1000"
-    
-    # 결과를 list()로 한 번에 감싸지 않고, item_pager를 그대로 사용 (스트리밍)
-    item_pager = container.query_items(
-        query=query,
-        enable_cross_partition_query=True
-    )
+    item_pager = container.query_items(query=query, enable_cross_partition_query=True)
 
-    # --- 3. 데이터 파싱 및 펼치기 (스트리밍 방식) ---
+    # --- 3. 데이터 파싱 및 펼치기 ---
     print("데이터 파싱 및 펼치기 작업 시작...")
     all_parking_data = []
     processed_item_count = 0
-    
-    # item_pager를 for 루프로 돌면서 하나씩 처리
     for item in item_pager:
         processed_item_count += 1
-        json_array_string = item.get('PRK_STTS')
+        # 'PRK_STTS'가 아닌 실제 배열 컬럼 이름으로 수정해야 할 수 있습니다.
+        json_array_string = item.get('PRK_STTS') 
         if json_array_string and isinstance(json_array_string, str):
             try:
                 data_list = json.loads(json_array_string)
                 all_parking_data.extend(data_list)
             except json.JSONDecodeError:
-                print(f"경고: ID {item.get('id')}의 PRK_STTS 컬럼이 올바른 JSON 형식이 아닙니다.")
+                print(f"경고: ID {item.get('id')}의 컬럼이 올바른 JSON 형식이 아닙니다.")
     
     print(f"총 {processed_item_count}개의 문서를 처리했습니다.")
-    # =================================================================
 
     if not all_parking_data:
         print("파싱 후 처리할 주차장 데이터가 없습니다. 스크립트를 종료합니다.")
@@ -61,24 +50,29 @@ def main():
         
     print(f"총 {len(all_parking_data)}개의 주차장 데이터로 펼쳤습니다.")
 
-    # --- 4. Pandas DataFrame으로 변환 및 데이터 처리 ---
-    # (이하 로직은 기존과 동일)
+    # --- 4. Pandas DataFrame으로 변환 ---
+    # 이 단계에서 원본 필드 이름(PKLT_NM, TPKCT 등)이 그대로 컬럼이 됩니다.
     df = pd.DataFrame(all_parking_data)
-    print("Pandas DataFrame으로 변환 완료.")
+    print("Pandas DataFrame으로 변환 완료. 원본 필드 이름이 유지됩니다.")
 
-    df['CPCTY'] = pd.to_numeric(df['CPCTY'], errors='coerce')
-    df['CUR_PRK_CNT'] = pd.to_numeric(df['CUR_PRK_CNT'], errors='coerce')
+    # --- 5. '주차_점유율' 컬럼 추가 (원본 필드 이�� 사용) ---
+    # 숫자형으로 변환 (오류 발생 시 숫자가 아닌 값으로 처리)
+    # to_numeric을 사용하여 안전하게 숫자 타입으로 변경합니다.
+    df['TPKCT_NUM'] = pd.to_numeric(df['TPKCT'], errors='coerce')
+    df['NOW_PRK_VHCL_CNT_NUM'] = pd.to_numeric(df['NOW_PRK_VHCL_CNT'], errors='coerce')
 
+    # '주차_점유율'이라는 새 컬럼을 추가합니다.
     df['주차_점유율'] = 0.0
-    mask = (df['CPCTY'] > 0) & (df['CPCTY'].notna()) & (df['CUR_PRK_CNT'].notna())
-    df.loc[mask, '주차_점유율'] = round((df['CUR_PRK_CNT'] / df['CPCTY']) * 100, 2)
-    print("주차 점유율 계산 완료.")
+    # 유효한 숫자일 경우에만 계산을 수행합니다.
+    mask = (df['TPKCT_NUM'] > 0) & (df['TPKCT_NUM'].notna()) & (df['NOW_PRK_VHCL_CNT_NUM'].notna())
+    df.loc[mask, '주차_점유율'] = round((df['NOW_PRK_VHCL_CNT_NUM'] / df['TPKCT_NUM']) * 100, 2)
+    
+    # 계산에 사용된 임시 숫자 컬럼은 삭제합니다.
+    df = df.drop(columns=['TPKCT_NUM', 'NOW_PRK_VHCL_CNT_NUM'])
+    print("'주차_점유율' 컬럼 추가 완료.")
 
-    # --- 5. Blob Storage에 CSV 파일로 업로드 ---
-    # (이하 로직은 기존과 동일)
+    # --- 6. Blob Storage에 CSV 파일로 업로드 ---
     print(f"'{BLOB_CONTAINER_NAME}/{OUTPUT_FILENAME}' 파일로 Blob Storage에 업로드 중...")
-    # azure-storage-blob 라이브러리가 설치되어 있어야 합니다.
-    from azure.storage.blob import BlobServiceClient
     blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
     blob_client = blob_service_client.get_blob_client(container=BLOB_CONTAINER_NAME, blob=OUTPUT_FILENAME)
 
