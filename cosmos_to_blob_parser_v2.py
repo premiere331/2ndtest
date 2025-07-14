@@ -47,9 +47,9 @@ def main():
     print("Pandas DataFrame으로 변환 완료.")
 
     # =================================================================
-    # === 4. 컬럼 이름 변경 및 최종 컬럼 선택/정렬 (핵심 요구사항 반영) ===
+    # === 4. 컬럼 이름 변경 및 최종 스키마/순서 보장 (핵심 요구사항 반영) ===
     # =================================================================
-    print("실제 컬럼 이름을 원하시는 최종 필드 이름으로 변경하고, 최종 컬럼셋을 정의합니다...")
+    print("실제 컬럼 이름을 원하시는 최종 필드 이름으로 변경하고, 최종 스키마를 적용합니다...")
 
     # 실제 이름 -> 원하는 이름 매핑 정의
     column_mapping = {
@@ -65,7 +65,7 @@ def main():
     # 컬럼 이름 변경
     df.rename(columns=column_mapping, inplace=True)
 
-    # 원하는 최종 컬럼 목록 (제공해주신 JSON 순서 기반)
+    # 원하는 최종 컬럼 목록 (제공해주신 JSON 순서 그대로)
     desired_columns_in_order = [
         "PKLT_CD", "PKLT_NM", "ADDR", "PKLT_TYPE", "PRK_TYPE_NM", "OPER_SE",
         "OPER_SE_NM", "TELNO", "PRK_STTS_YN", "PRK_STTS_NM", "TPKCT",
@@ -80,13 +80,10 @@ def main():
         "SHRN_PKLT_MNG_URL", "SHRN_PKLT_YN", "SHRN_PKLT_ETC"
     ]
 
-    # df에 존재하지 않는 컬럼이 desired_columns_in_order에 있을 경우를 대비하여,
-    # 실제 존재하는 컬럼만으로 최종 목록을 다시 필터링합니다. (오류 방지)
-    final_columns = [col for col in desired_columns_in_order if col in df.columns]
-    
-    # 최종 컬럼만 선택하고 순서를 맞춥니다.
-    df = df[final_columns]
-    print("컬럼 이름 변경 및 최종 컬럼 선택/정렬 완료.")
+    # reindex를 사용하여 DataFrame의 구조를 원하는 컬럼 목록과 순서로 강제 재구성합니다.
+    # 이 과정에서 실제 데이터에 없던 컬럼��� 빈 값(NaN)으로 채워져 생성됩니다.
+    df = df.reindex(columns=desired_columns_in_order)
+    print("컬럼 스키마 및 순서 최종 적용 완료.")
     # =================================================================
 
     # --- 5. Blob Storage에 CSV 파일로 업로드 ---
