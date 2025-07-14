@@ -23,8 +23,11 @@ def main():
     database = client.get_database_client(DATABASE_NAME)
     container = database.get_container_client(CONTAINER_NAME)
 
-    print("데이터 쿼리 실행 (최근 1000개 문서만 가져오도록 제한)...")
-    query = "SELECT * FROM c ORDER BY c._ts DESC OFFSET 0 LIMIT 1000"
+    # =================================================================
+    # === 쿼리 수정: PRK_STTS 필드가 있는 문서만 선택 ===
+    # =================================================================
+    print("데이터 쿼리 실행 ('PRK_STTS' 필드가 있는 최근 1000개 문서만 선택)...")
+    query = "SELECT * FROM c WHERE IS_DEFINED(c.PRK_STTS) ORDER BY c._ts DESC OFFSET 0 LIMIT 1000"
     item_pager = container.query_items(query=query, enable_cross_partition_query=True)
 
     # --- 3. 데이터 파싱 및 펼치기 ---
@@ -40,7 +43,7 @@ def main():
                 print(f"경고: ID {item.get('id')}의 PRK_STTS 컬럼이 올바른 JSON 형식이 아닙니다.")
     
     if not all_parking_data:
-        print("파싱 후 처리할 주차장 데이터가 없습니다. 스크립트를 종료합니다.")
+        print("처리할 주차장 데이터가 없습니다. 스크립트를 종료합니다.")
         return
         
     df = pd.DataFrame(all_parking_data)
@@ -51,7 +54,7 @@ def main():
     # =================================================================
     print("실제 컬럼 이름을 원하시는 최종 필드 이름으로 변경하고, 최종 스키마를 적용합니다...")
 
-    # 실제 이름 -> 원하는 이름 매핑 정의
+    # 실제 이름 -> 원���는 이름 매핑 정의
     column_mapping = {
         'PRK_CD': 'PKLT_CD',
         'PRK_NM': 'PKLT_NM',
@@ -65,7 +68,7 @@ def main():
     # 컬럼 이름 변경
     df.rename(columns=column_mapping, inplace=True)
 
-    # 원하는 최종 컬럼 목록 (제공해주신 JSON 순서 그대로)
+    # 원하는 최종 컬럼 목록 (제공해주신 JSON 순서 그대로, 빠짐없이)
     desired_columns_in_order = [
         "PKLT_CD", "PKLT_NM", "ADDR", "PKLT_TYPE", "PRK_TYPE_NM", "OPER_SE",
         "OPER_SE_NM", "TELNO", "PRK_STTS_YN", "PRK_STTS_NM", "TPKCT",
@@ -81,9 +84,9 @@ def main():
     ]
 
     # reindex를 사용하여 DataFrame의 구조를 원하는 컬럼 목록과 순서로 강제 재구성합니다.
-    # 이 과정에서 실제 데이터에 없던 컬럼��� 빈 값(NaN)으로 채워져 생성됩니다.
+    # 이 과정에서 실제 데이터에 없던 컬럼은 빈 값(NaN)으로 채워져 생성됩니다.
     df = df.reindex(columns=desired_columns_in_order)
-    print("컬럼 스키마 및 순서 최종 적용 완료.")
+    print("컬럼 스키마 및 순서 최종 적용 완료. 누락된 컬럼은 빈 값으로 채워졌습니다.")
     # =================================================================
 
     # --- 5. Blob Storage에 CSV 파일로 업로드 ---
