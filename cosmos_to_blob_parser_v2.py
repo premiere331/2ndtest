@@ -14,8 +14,9 @@ BLOB_CONNECTION_STRING = "DefaultEndpointsProtocol=https;AccountName=cosmo2csv;A
 BLOB_CONTAINER_NAME = "parkingcsv" # 데이터를 저장할 Blob 컨테이너 이름
 OUTPUT_FILENAME = "parking_data_from_vm.csv" # 저장될 CSV 파일 이름
 
+
 def main():
-    print("스크립트 실행 시작...")
+    print("스크립트 실행 시작 (AS-IS 버전)...")
 
     # --- 2. Cosmos DB에서 데이터 가져오기 ---
     print(f"Cosmos DB '{DATABASE_NAME}/{CONTAINER_NAME}'에 연결 중...")
@@ -23,15 +24,12 @@ def main():
     database = client.get_database_client(DATABASE_NAME)
     container = database.get_container_client(CONTAINER_NAME)
 
-    # =================================================================
-    # === 쿼리 수정: PRK_STTS 필드가 있는 문서만 선택 ===
-    # =================================================================
     print("데이터 쿼리 실행 ('PRK_STTS' 필드가 있는 최근 1000개 문서만 선택)...")
     query = "SELECT * FROM c WHERE IS_DEFINED(c.PRK_STTS) ORDER BY c._ts DESC OFFSET 0 LIMIT 1000"
     item_pager = container.query_items(query=query, enable_cross_partition_query=True)
 
     # --- 3. 데이터 파싱 및 펼치기 ---
-    print("데이터 파싱 및 펼치기 작업 시작...")
+    print("데이��� 파싱 및 펼치기 작업 시작...")
     all_parking_data = []
     for item in item_pager:
         json_array_string = item.get('PRK_STTS')
@@ -46,47 +44,15 @@ def main():
         print("처리할 주차장 데이터가 없습니다. 스크립트를 종료합니다.")
         return
         
+    # =================================================================
+    # === 4. Pandas DataFrame으로 변환 (AS-IS) ===
+    # =================================================================
+    # 어떠한 컬럼 이름 변경이나 선택도 하지 않고, 있는 그대로 DataFrame을 생성합니다.
+    # 최종 CSV의 컬럼은 실제 데이터의 키와 순서를 그대로 따릅니다.
     df = pd.DataFrame(all_parking_data)
-    print("Pandas DataFrame으로 변환 완료.")
-
-    # =================================================================
-    # === 4. 컬럼 이름 변경 및 최종 스키마/순서 보장 (핵심 요구사항 반영) ===
-    # =================================================================
-    print("실제 컬럼 이름을 원하시는 최종 필드 이름으로 변경하고, 최종 스키마를 적용합니다...")
-
-    # 실제 이름 -> 원���는 이름 매핑 정의
-    column_mapping = {
-        'PRK_CD': 'PKLT_CD',
-        'PRK_NM': 'PKLT_NM',
-        'ADDRESS': 'ADDR',
-        'PRK_TYPE': 'PKLT_TYPE',
-        'CPCTY': 'TPKCT',
-        'CUR_PRK_CNT': 'NOW_PRK_VHCL_CNT',
-        'CUR_PRK_TIME': 'NOW_PRK_VHCL_UPDT_TM'
-    }
-    
-    # 컬럼 이름 변경
-    df.rename(columns=column_mapping, inplace=True)
-
-    # 원하는 최종 컬럼 목록 (제공해주신 JSON 순서 그대로, 빠짐없이)
-    desired_columns_in_order = [
-        "PKLT_CD", "PKLT_NM", "ADDR", "PKLT_TYPE", "PRK_TYPE_NM", "OPER_SE",
-        "OPER_SE_NM", "TELNO", "PRK_STTS_YN", "PRK_STTS_NM", "TPKCT",
-        "NOW_PRK_VHCL_CNT", "NOW_PRK_VHCL_UPDT_TM", "PAY_YN", "PAY_YN_NM",
-        "NGHT_PAY_YN", "NGHT_PAY_YN_NM", "WD_OPER_BGNG_TM", "WD_OPER_END_TM",
-        "WE_OPER_BGNG_TM", "WE_OPER_END_TM", "LHLDY_OPER_BGNG_TM",
-        "LHLDY_OPER_END_TM", "SAT_CHGD_FREE_SE", "SAT_CHGD_FREE_NM",
-        "LHLDY_CHGD_FREE_SE", "LHLDY_CHGD_FREE_SE_NAME", "PRD_AMT",
-        "STRT_PKLT_MNG_NO", "BSC_PRK_CRG", "BSC_PRK_HR", "ADD_PRK_CRG",
-        "ADD_PRK_HR", "BUS_BSC_PRK_CRG", "BUS_BSC_PRK_HR", "BUS_ADD_PRK_HR",
-        "BUS_ADD_PRK_CRG", "DAY_MAX_CRG", "SHRN_PKLT_MNG_NM",
-        "SHRN_PKLT_MNG_URL", "SHRN_PKLT_YN", "SHRN_PKLT_ETC"
-    ]
-
-    # reindex를 사용하여 DataFrame의 구조를 원하는 컬럼 목록과 순서로 강제 재구성합니다.
-    # 이 과정에서 실제 데이터에 없던 컬럼은 빈 값(NaN)으로 채워져 생성됩니다.
-    df = df.reindex(columns=desired_columns_in_order)
-    print("컬럼 스키마 및 순서 최종 적용 완료. 누락된 컬럼은 빈 값으로 채워졌습니다.")
+    print("Pandas DataFrame으로 변환 완료. 실제 데이터의 스키마를 그대로 유지합니다.")
+    print("생성된 컬럼 목록:")
+    print(df.columns)
     # =================================================================
 
     # --- 5. Blob Storage에 CSV 파일로 업로드 ---
