@@ -5,14 +5,14 @@ from azure.cosmos import CosmosClient
 from azure.storage.blob import BlobServiceClient
 
 # --- 1. Azure 리소스 연결 정보 설정 ---
-COSMOS_ENDPOINT = "https://seoul-data-db.documents.azure.com:443"  # 예: "https://your-account.documents.azure.com:443/"
-COSMOS_KEY = "gdgCLQrX8omjZKrDkLRCyo41URDljVi7K8rdHzTUcUpRLg2k1BR8th6CmyKtUG3XS0wLB2hwe49oACDbxniaXQ=="
+COSMOS_ENDPOINT = "YOUR_COSMOS_DB_ENDPOINT"
+COSMOS_KEY = "YOUR_COSMOS_DB_PRIMARY_KEY"
 DATABASE_NAME = "seoul-data-db"
 CONTAINER_NAME = "seoul-data-container"
 
-BLOB_CONNECTION_STRING = "DefaultEndpointsProtocol=https;AccountName=cosmo2csv;AccountKey=jkUvA9iMfrJ8JHNSuuOs21uFYfM7g2Gu7D/CubSAEE6bknEtqp7x8woG3XGZSqviuth3t14oPvpk+AStKqz1qg==;EndpointSuffix=core.windows.net"
-BLOB_CONTAINER_NAME = "parkingcsv" # 데이터를 저장할 Blob 컨테이너 이름
-OUTPUT_FILENAME = "parking_data_from_vm.csv" # 저장될 CSV 파일 이름
+BLOB_CONNECTION_STRING = "YOUR_BLOB_STORAGE_CONNECTION_STRING"
+BLOB_CONTAINER_NAME = "parkingcsv"
+OUTPUT_FILENAME = "parking_data_from_vm.csv"
 
 def main():
     print("스크립트 실행 시작...")
@@ -30,9 +30,7 @@ def main():
     # --- 3. 데이터 파싱 및 펼치기 ---
     print("데이터 파싱 및 펼치기 작업 시작...")
     all_parking_data = []
-    processed_item_count = 0
     for item in item_pager:
-        processed_item_count += 1
         json_array_string = item.get('PRK_STTS')
         if json_array_string and isinstance(json_array_string, str):
             try:
@@ -41,47 +39,57 @@ def main():
             except json.JSONDecodeError:
                 print(f"경고: ID {item.get('id')}의 PRK_STTS 컬럼이 올바른 JSON 형식이 아닙니다.")
     
-    print(f"총 {processed_item_count}개의 문서를 처리했습니다.")
-
     if not all_parking_data:
         print("파싱 후 처리할 주차장 데이터가 없습니다. 스크립트를 종료합니다.")
         return
         
-    print(f"총 {len(all_parking_data)}개의 주차장 데이터로 펼쳤습니다.")
-
-    # --- 4. Pandas DataFrame으로 변환 ---
     df = pd.DataFrame(all_parking_data)
     print("Pandas DataFrame으로 변환 완료.")
 
     # =================================================================
-    # === 5. 컬럼 이름 변경 (요구사항 반영) ===
+    # === 4. 컬럼 이름 변경 및 최종 컬럼 선택/정렬 (핵심 요구사항 반영) ===
     # =================================================================
-    print("실제 컬럼 이름을 원하시는 최종 필드 이름으로 변경합니다...")
-    # rename 함수는 해당 컬럼이 있을 때만 이름을 바꾸므로, 오류 없이 안전하게 실행됩니다.
-    df = df.rename(columns={
+    print("실제 컬럼 이름을 원하시는 최종 필드 이름으로 변경하고, 최종 컬럼셋을 정의합니다...")
+
+    # 실제 이름 -> 원하는 이름 매핑 정의
+    column_mapping = {
+        'PRK_CD': 'PKLT_CD',
+        'PRK_NM': 'PKLT_NM',
+        'ADDRESS': 'ADDR',
+        'PRK_TYPE': 'PKLT_TYPE',
         'CPCTY': 'TPKCT',
-        'CUR_PRK_CNT': 'NOW_PRK_VHCL_CNT'
-        # 다른 이름 변경이 필요하면 여기에 추가: '원본이름': '새이름'
-    })
-    print("컬럼 이름 변경 완료.")
+        'CUR_PRK_CNT': 'NOW_PRK_VHCL_CNT',
+        'CUR_PRK_TIME': 'NOW_PRK_VHCL_UPDT_TM'
+    }
+    
+    # 컬럼 이름 변경
+    df.rename(columns=column_mapping, inplace=True)
+
+    # 원하는 최종 컬럼 목록 (제공해주신 JSON 순서 기반)
+    desired_columns_in_order = [
+        "PKLT_CD", "PKLT_NM", "ADDR", "PKLT_TYPE", "PRK_TYPE_NM", "OPER_SE",
+        "OPER_SE_NM", "TELNO", "PRK_STTS_YN", "PRK_STTS_NM", "TPKCT",
+        "NOW_PRK_VHCL_CNT", "NOW_PRK_VHCL_UPDT_TM", "PAY_YN", "PAY_YN_NM",
+        "NGHT_PAY_YN", "NGHT_PAY_YN_NM", "WD_OPER_BGNG_TM", "WD_OPER_END_TM",
+        "WE_OPER_BGNG_TM", "WE_OPER_END_TM", "LHLDY_OPER_BGNG_TM",
+        "LHLDY_OPER_END_TM", "SAT_CHGD_FREE_SE", "SAT_CHGD_FREE_NM",
+        "LHLDY_CHGD_FREE_SE", "LHLDY_CHGD_FREE_SE_NAME", "PRD_AMT",
+        "STRT_PKLT_MNG_NO", "BSC_PRK_CRG", "BSC_PRK_HR", "ADD_PRK_CRG",
+        "ADD_PRK_HR", "BUS_BSC_PRK_CRG", "BUS_BSC_PRK_HR", "BUS_ADD_PRK_HR",
+        "BUS_ADD_PRK_CRG", "DAY_MAX_CRG", "SHRN_PKLT_MNG_NM",
+        "SHRN_PKLT_MNG_URL", "SHRN_PKLT_YN", "SHRN_PKLT_ETC"
+    ]
+
+    # df에 존재하지 않는 컬럼이 desired_columns_in_order에 있을 경우를 대비하여,
+    # 실제 존재하는 컬럼만으로 최종 목록을 다시 필터링합니다. (오류 방지)
+    final_columns = [col for col in desired_columns_in_order if col in df.columns]
+    
+    # 최종 컬럼만 선택하고 순서를 맞춥니다.
+    df = df[final_columns]
+    print("컬럼 이름 변경 및 최종 컬럼 선택/정렬 완료.")
     # =================================================================
 
-    # --- 6. '주차_점유율' 컬럼 추가 (변경된 최종 이름 사용) ---
-    # to_numeric을 사용하여 안전하게 숫자 타입으로 변경합니다.
-    df['TPKCT_NUM'] = pd.to_numeric(df.get('TPKCT'), errors='coerce')
-    df['NOW_PRK_VHCL_CNT_NUM'] = pd.to_numeric(df.get('NOW_PRK_VHCL_CNT'), errors='coerce')
-
-    # '주차_점유율'이라는 새 컬럼을 추가합니다.
-    df['주차_점유율'] = 0.0
-    # 유효한 숫자일 경우에만 계산을 수행합니다.
-    mask = (df['TPKCT_NUM'] > 0) & (df['TPKCT_NUM'].notna()) & (df['NOW_PRK_VHCL_CNT_NUM'].notna())
-    df.loc[mask, '주차_점유율'] = round((df['NOW_PRK_VHCL_CNT_NUM'] / df['TPKCT_NUM']) * 100, 2)
-    
-    # 계산에 사용된 임시 숫자 컬럼은 삭제합니다.
-    df = df.drop(columns=['TPKCT_NUM', 'NOW_PRK_VHCL_CNT_NUM'])
-    print("'주차_점유율' 컬럼 추가 완료.")
-
-    # --- 7. Blob Storage에 CSV 파일로 업로드 ---
+    # --- 5. Blob Storage에 CSV 파일로 업로드 ---
     print(f"'{BLOB_CONTAINER_NAME}/{OUTPUT_FILENAME}' 파일로 Blob Storage에 업로드 중...")
     blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
     blob_client = blob_service_client.get_blob_client(container=BLOB_CONTAINER_NAME, blob=OUTPUT_FILENAME)
