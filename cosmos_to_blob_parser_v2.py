@@ -29,7 +29,7 @@ def main():
     item_pager = container.query_items(query=query, enable_cross_partition_query=True)
 
     # --- 3. 데이터 파싱 및 펼치기 ---
-    print("데이��� 파싱 및 펼치기 작업 시작...")
+    print("데이터 파싱 및 펼치기 작업 시작...")
     all_parking_data = []
     for item in item_pager:
         json_array_string = item.get('PRK_STTS')
