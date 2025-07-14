@@ -14,7 +14,6 @@ BLOB_CONNECTION_STRING = "DefaultEndpointsProtocol=https;AccountName=cosmo2csv;A
 BLOB_CONTAINER_NAME = "parkingcsv" # 데이터를 저장할 Blob 컨테이너 이름
 OUTPUT_FILENAME = "parking_data_from_vm.csv" # 저장될 CSV 파일 이름
 
-
 def main():
     print("스크립트 실행 시작...")
 
@@ -34,14 +33,13 @@ def main():
     processed_item_count = 0
     for item in item_pager:
         processed_item_count += 1
-        # 'PRK_STTS'가 아닌 실제 배열 컬럼 이름으로 수정해야 할 수 있습니다.
-        json_array_string = item.get('PRK_STTS') 
+        json_array_string = item.get('PRK_STTS')
         if json_array_string and isinstance(json_array_string, str):
             try:
                 data_list = json.loads(json_array_string)
                 all_parking_data.extend(data_list)
             except json.JSONDecodeError:
-                print(f"경고: ID {item.get('id')}의 컬럼이 올바른 JSON 형식이 아닙니다.")
+                print(f"경고: ID {item.get('id')}의 PRK_STTS 컬럼이 올바른 JSON 형식이 아닙니다.")
     
     print(f"총 {processed_item_count}개의 문서를 처리했습니다.")
 
@@ -52,15 +50,26 @@ def main():
     print(f"총 {len(all_parking_data)}개의 주차장 데이터로 펼쳤습니다.")
 
     # --- 4. Pandas DataFrame으로 변환 ---
-    # 이 단계에서 원본 필드 이름(PKLT_NM, TPKCT 등)이 그대로 컬럼이 됩니다.
     df = pd.DataFrame(all_parking_data)
-    print("Pandas DataFrame으로 변환 완료. 원본 필드 이름이 유지됩니다.")
+    print("Pandas DataFrame으로 변환 완료.")
 
-    # --- 5. '주차_점유율' 컬럼 추가 (원본 필드 이�� 사용) ---
-    # 숫자형으로 변환 (오류 발생 시 숫자가 아닌 값으로 처리)
+    # =================================================================
+    # === 5. 컬럼 이름 변경 (요구사항 반영) ===
+    # =================================================================
+    print("실제 컬럼 이름을 원하시는 최종 필드 이름으로 변경합니다...")
+    # rename 함수는 해당 컬럼이 있을 때만 이름을 바꾸므로, 오류 없이 안전하게 실행됩니다.
+    df = df.rename(columns={
+        'CPCTY': 'TPKCT',
+        'CUR_PRK_CNT': 'NOW_PRK_VHCL_CNT'
+        # 다른 이름 변경이 필요하면 여기에 추가: '원본이름': '새이름'
+    })
+    print("컬럼 이름 변경 완료.")
+    # =================================================================
+
+    # --- 6. '주차_점유율' 컬럼 추가 (변경된 최종 이름 사용) ---
     # to_numeric을 사용하여 안전하게 숫자 타입으로 변경합니다.
-    df['TPKCT_NUM'] = pd.to_numeric(df['TPKCT'], errors='coerce')
-    df['NOW_PRK_VHCL_CNT_NUM'] = pd.to_numeric(df['NOW_PRK_VHCL_CNT'], errors='coerce')
+    df['TPKCT_NUM'] = pd.to_numeric(df.get('TPKCT'), errors='coerce')
+    df['NOW_PRK_VHCL_CNT_NUM'] = pd.to_numeric(df.get('NOW_PRK_VHCL_CNT'), errors='coerce')
 
     # '주차_점유율'이라는 새 컬럼을 추가합니다.
     df['주차_점유율'] = 0.0
@@ -72,7 +81,7 @@ def main():
     df = df.drop(columns=['TPKCT_NUM', 'NOW_PRK_VHCL_CNT_NUM'])
     print("'주차_점유율' 컬럼 추가 완료.")
 
-    # --- 6. Blob Storage에 CSV 파일로 업로드 ---
+    # --- 7. Blob Storage에 CSV 파일로 업로드 ---
     print(f"'{BLOB_CONTAINER_NAME}/{OUTPUT_FILENAME}' 파일로 Blob Storage에 업로드 중...")
     blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
     blob_client = blob_service_client.get_blob_client(container=BLOB_CONTAINER_NAME, blob=OUTPUT_FILENAME)
