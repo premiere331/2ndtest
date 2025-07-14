@@ -5,14 +5,14 @@ from azure.cosmos import CosmosClient
 from azure.storage.blob import BlobServiceClient
 
 # --- 1. Azure 리소스 연결 정보 설정 ---
-COSMOS_ENDPOINT = "YOUR_COSMOS_DB_ENDPOINT"
-COSMOS_KEY = "YOUR_COSMOS_DB_PRIMARY_KEY"
+COSMOS_ENDPOINT = "https://seoul-data-db.documents.azure.com:443"  # 예: "https://your-account.documents.azure.com:443/"
+COSMOS_KEY = "gdgCLQrX8omjZKrDkLRCyo41URDljVi7K8rdHzTUcUpRLg2k1BR8th6CmyKtUG3XS0wLB2hwe49oACDbxniaXQ=="
 DATABASE_NAME = "seoul-data-db"
 CONTAINER_NAME = "seoul-data-container"
 
-BLOB_CONNECTION_STRING = "YOUR_BLOB_STORAGE_CONNECTION_STRING"
-BLOB_CONTAINER_NAME = "parkingcsv"
-OUTPUT_FILENAME = "parking_data_from_vm.csv"
+BLOB_CONNECTION_STRING = "DefaultEndpointsProtocol=https;AccountName=cosmo2csv;AccountKey=jkUvA9iMfrJ8JHNSuuOs21uFYfM7g2Gu7D/CubSAEE6bknEtqp7x8woG3XGZSqviuth3t14oPvpk+AStKqz1qg==;EndpointSuffix=core.windows.net"
+BLOB_CONTAINER_NAME = "parkingcsv" # 데이터를 저장할 Blob 컨테이너 이름
+OUTPUT_FILENAME = "parking_data_from_vm.csv" # 저장될 CSV 파일 이름
 
 def main():
     print("스크립트 실행 시작...")
