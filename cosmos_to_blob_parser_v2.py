@@ -1,54 +1,70 @@
+import os
+import json
 import pandas as pd
 from azure.cosmos import CosmosClient
-from azure.storage.blob import BlobServiceClient, ContentSettings
-from io import StringIO
+from azure.storage.blob import BlobServiceClient
 
-# === 1. Cosmos DB 연결 ===
+# --- 1. Azure 리소스 연결 정보 설정 ---
 COSMOS_ENDPOINT = "https://seoul-data-db.documents.azure.com:443"  # 예: "https://your-account.documents.azure.com:443/"
 COSMOS_KEY = "gdgCLQrX8omjZKrDkLRCyo41URDljVi7K8rdHzTUcUpRLg2k1BR8th6CmyKtUG3XS0wLB2hwe49oACDbxniaXQ=="
 DATABASE_NAME = "seoul-data-db"
 CONTAINER_NAME = "seoul-data-container"
 
-client = CosmosClient(COSMOS_ENDPOINT, COSMOS_KEY)
-db = client.get_database_client(DATABASE_NAME)
-container = db.get_container_client(CONTAINER_NAME)
-
-# === 2. 최대 1000개 행 조회 ===
-query = "SELECT TOP 1000 * FROM c"
-items = list(container.query_items(query=query, enable_cross_partition_query=True))
-df_raw = pd.DataFrame(items)
-
-# === 3. 50개 컬럼 정의 및 누락 채움 ===
-columns = [
-    "PKLT_CD", "PKLT_NM", "ADDR", "PKLT_TYPE", "PRK_TYPE_NM", "OPER_SE", "OPER_SE_NM", "TELNO",
-    "PRK_STTS_YN", "PRK_STTS_NM", "TPKCT", "NOW_PRK_VHCL_CNT", "NOW_PRK_VHCL_UPDT_TM", "PAY_YN",
-    "PAY_YN_NM", "NGHT_PAY_YN", "NGHT_PAY_YN_NM", "WD_OPER_BGNG_TM", "WD_OPER_END_TM",
-    "WE_OPER_BGNG_TM", "WE_OPER_END_TM", "LHLDY_OPER_BGNG_TM", "LHLDY_OPER_END_TM",
-    "SAT_CHGD_FREE_SE", "SAT_CHGD_FREE_NM", "LHLDY_CHGD_FREE_SE", "LHLDY_CHGD_FREE_SE_NAME",
-    "PRD_AMT", "STRT_PKLT_MNG_NO", "BSC_PRK_CRG", "BSC_PRK_HR", "ADD_PRK_CRG", "ADD_PRK_HR",
-    "BUS_BSC_PRK_CRG", "BUS_BSC_PRK_HR", "BUS_ADD_PRK_HR", "BUS_ADD_PRK_CRG", "DAY_MAX_CRG",
-    "SHRN_PKLT_MNG_NM", "SHRN_PKLT_MNG_URL", "SHRN_PKLT_YN", "SHRN_PKLT_ETC"
-]
-
-for col in columns:
-    if col not in df_raw.columns:
-        df_raw[col] = None
-
-df_final = df_raw[columns]
-
-# === 4. CSV 파일 메모리에 생성 ===
-csv_buffer = StringIO()
-df_final.to_csv(csv_buffer, index=False, encoding="utf-8")
-
-# === 5. Azure Blob Storage로 덮어쓰기 ===
 BLOB_CONNECTION_STRING = "DefaultEndpointsProtocol=https;AccountName=cosmo2csv;AccountKey=jkUvA9iMfrJ8JHNSuuOs21uFYfM7g2Gu7D/CubSAEE6bknEtqp7x8woG3XGZSqviuth3t14oPvpk+AStKqz1qg==;EndpointSuffix=core.windows.net"
-BLOB_CONTAINER_NAME = "parkingcsv"
-BLOB_FILENAME = "parking_data_from_vm.csv"
+BLOB_CONTAINER_NAME = "parkingcsv" # 데이터를 저장할 Blob 컨테이너 이름
+OUTPUT_FILENAME = "parking_data_from_vm.csv" # 저장될 CSV 파일 이름
 
-blob_service = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
-blob_client = blob_service.get_blob_client(container=BLOB_CONTAINER_NAME, blob=BLOB_FILENAME)
 
-blob_client.upload_blob(csv_buffer.getvalue(), overwrite=True,
-                        content_settings=ContentSettings(content_type="text/csv"))
+def main():
+    print("스크립트 실행 시작 (AS-IS 버전)...")
 
-print(f"업로드 완료: {BLOB_FILENAME} (1000개 행)")
+    # --- 2. Cosmos DB에서 데이터 가져오기 ---
+    print(f"Cosmos DB '{DATABASE_NAME}/{CONTAINER_NAME}'에 연결 중...")
+    client = CosmosClient(COSMOS_ENDPOINT, credential=COSMOS_KEY)
+    database = client.get_database_client(DATABASE_NAME)
+    container = database.get_container_client(CONTAINER_NAME)
+
+    print("데이터 쿼리 실행 ('PRK_STTS' 필드가 있는 최근 1000개 문서만 선택)...")
+    query = "SELECT * FROM c WHERE IS_DEFINED(c.PRK_STTS) ORDER BY c._ts DESC OFFSET 0 LIMIT 1000"
+    item_pager = container.query_items(query=query, enable_cross_partition_query=True)
+
+    # --- 3. 데이터 파싱 및 펼치기 ---
+    print("데이터 파싱 및 펼치기 작업 시작...")
+    all_parking_data = []
+    for item in item_pager:
+        json_array_string = item.get('PRK_STTS')
+        if json_array_string and isinstance(json_array_string, str):
+            try:
+                data_list = json.loads(json_array_string)
+                all_parking_data.extend(data_list)
+            except json.JSONDecodeError:
+                print(f"경고: ID {item.get('id')}의 PRK_STTS 컬럼이 올바른 JSON 형식이 아닙니다.")
+    
+    if not all_parking_data:
+        print("처리할 주차장 데이터가 없습니다. 스크립트를 종료합니다.")
+        return
+        
+    # =================================================================
+    # === 4. Pandas DataFrame으로 변환 (AS-IS) ===
+    # =================================================================
+    # 어떠한 컬럼 이름 변경이나 선택도 하지 않고, 있는 그대로 DataFrame을 생성합니다.
+    # 최종 CSV의 컬럼은 실제 데이터의 키와 순서를 그대로 따릅니다.
+    df = pd.DataFrame(all_parking_data)
+    print("Pandas DataFrame으로 변환 완료. 실제 데이터의 스키마를 그대로 유지합니다.")
+    print("생성된 컬럼 목록:")
+    print(df.columns)
+    # =================================================================
+
+    # --- 5. Blob Storage에 CSV 파일로 업로드 ---
+    print(f"'{BLOB_CONTAINER_NAME}/{OUTPUT_FILENAME}' 파일로 Blob Storage에 업로드 중...")
+    blob_service_client = BlobServiceClient.from_connection_string(BLOB_CONNECTION_STRING)
+    blob_client = blob_service_client.get_blob_client(container=BLOB_CONTAINER_NAME, blob=OUTPUT_FILENAME)
+
+    output_csv = df.to_csv(index=False, encoding='utf-8-sig')
+    blob_client.upload_blob(output_csv, overwrite=True)
+    print("업로드 성공!")
+
+    print("스크립트 실행 완료.")
+
+if __name__ == '__main__':
+    main()
